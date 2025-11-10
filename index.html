@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Bate-papo estilo WhatsApp</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+      /* ===== RESET ===== */
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Arial, sans-serif;
+        background-color: #e5ddd5;
+        color: #111b21;
+        height: 100vh;
+        display: flex;
+      }
+
+      /* ===== SIDEBAR ===== */
+      .sidebar {
+        width: 320px;
+        background-color: #f0f2f5;
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid #ddd;
+      }
+
+      .sidebar h2 {
+        background-color: #008069;
+        text-align: center;
+        font-size: 18px;
+        padding: 18px 0;
+        color: white;
+        font-weight: normal;
+      }
+
+      .user-list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+      }
+
+      .user {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 10px;
+        background-color: #ffffff;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        color: #111b21;
+        font-size: 14px;
+        cursor: pointer;
+        transition: 0.2s;
+      }
+
+      .user:hover {
+        background-color: #e9edef;
+      }
+
+      .user-photo {
+        width: 45px;
+        height: 45px;
+        border-radius: 50%;
+        background-color: #d1d7db;
+        background-size: cover;
+        background-position: center;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #555;
+        font-weight: bold;
+        text-transform: uppercase;
+        font-size: 16px;
+      }
+
+      /* ===== MAIN CHAT AREA ===== */
+      .chat-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+       
+        background-size: contain;
+        position: relative;
+      }
+
+      /* ===== Mensagens ===== */
+      #mensagens {
+        flex: 1;
+        list-style: none;
+        overflow-y: auto;
+        padding: 25px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        scroll-behavior: smooth;
+      }
+
+      #mensagens li {
+        padding: 10px 15px;
+        border-radius: 8px;
+        max-width: 60%;
+        word-wrap: break-word;
+        font-size: 15px;
+        line-height: 1.4;
+        position: relative;
+        animation: aparecer 0.2s ease-in-out;
+      }
+
+      #mensagens li span {
+        font-weight: bold;
+        color: #111b21;
+        margin-right: 6px;
+      }
+
+      /* Mensagens do outro */
+      #mensagens li:not(.self) {
+        align-self: flex-start;
+        background-color: #ffffff;
+        border-top-left-radius: 0;
+      }
+
+      /* Mensagens do próprio usuário */
+      .self {
+        align-self: flex-end;
+        background-color: #dcf8c6;
+        border-top-right-radius: 0;
+      }
+
+      /* ===== Campo de mensagem ===== */
+      form {
+        display: flex;
+        padding: 12px 16px;
+        background-color: #f0f2f5;
+        border-top: 1px solid #ddd;
+        gap: 10px;
+        align-items: center;
+      }
+
+      #nome,
+      #mensagem {
+        background-color: #ffffff;
+        color: #111b21;
+        border: 1px solid #ccc;
+        padding: 10px 14px;
+        border-radius: 25px;
+        outline: none;
+        font-size: 15px;
+      }
+
+      #nome {
+        width: 25%;
+      }
+
+      #mensagem {
+        flex: 1;
+      }
+
+      #foto {
+        color: #111b21;
+      }
+
+      button {
+        background-color: #008069;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 25px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: 0.2s;
+      }
+
+      button:hover {
+        background-color: #036b57;
+      }
+
+      /* ===== Scrollbar ===== */
+      ::-webkit-scrollbar {
+        width: 8px;
+      }
+
+      ::-webkit-scrollbar-thumb {
+        background-color: rgba(0, 0, 0, 0.2);
+        border-radius: 10px;
+      }
+
+      @keyframes aparecer {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Barra lateral -->
+    <div class="sidebar">
+      <h2>Contatos</h2>
+      <div class="user-list" id="userList">
+        <input id="foto" type="file" accept="image/*" />
+      </div>
+    </div>
+
+    <!-- Área principal -->
+    <div class="chat-container">
+      <ul id="mensagens"></ul>
+      <form id="form">
+        <input id="nome" placeholder="Seu nome" autocomplete="off" />
+        <input id="mensagem" placeholder="Digite uma mensagem..." autocomplete="off" />
+        <button>Enviar</button>
+      </form>
+    </div>
+
+    <script>
+      const socket = io();
+
+      const nomeInput = document.getElementById("nome");
+      const fotoInput = document.getElementById("foto");
+      const mensagemInput = document.getElementById("mensagem");
+      const mensagens = document.getElementById("mensagens");
+      const form = document.getElementById("form");
+      const userList = document.getElementById("userList");
+
+      let nomeUsuario = "";
+      let fotoUsuario = null;
+
+      fotoInput.addEventListener("change", (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            fotoUsuario = e.target.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      form.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const nome = nomeInput.value.trim();
+        const mensagem = mensagemInput.value.trim();
+
+        if (!nome || !mensagem) return;
+
+        nomeUsuario = nome;
+        socket.emit("chat message", { nome, mensagem, foto: fotoUsuario });
+        mensagemInput.value = "";
+        nomeInput.disabled = true;
+        fotoInput.disabled = true;
+      });
+
+      socket.on("chat message", (dados) => {
+        const li = document.createElement("li");
+        li.innerHTML = `<span>${dados.nome}</span> ${dados.mensagem}`;
+        if (dados.nome === nomeUsuario) li.classList.add("self");
+        mensagens.appendChild(li);
+        mensagens.scrollTop = mensagens.scrollHeight;
+      });
+
+      socket.on("usuarios", (usuarios) => {
+        userList.innerHTML = "";
+        usuarios.forEach((user) => {
+          const div = document.createElement("div");
+          div.classList.add("user");
+
+          const fotoDiv = document.createElement("div");
+          fotoDiv.classList.add("user-photo");
+
+          if (user.foto) {
+            fotoDiv.style.backgroundImage = `url('${user.foto}')`;
+          } else {
+            fotoDiv.textContent = user.charAt(0).toUpperCase();
+          }
+
+          const nomeSpan = document.createElement("span");
+          nomeSpan.textContent = user.nome || user;
+
+          div.appendChild(fotoDiv);
+          div.appendChild(nomeSpan);
+          userList.appendChild(div);
+        });
+      });
+    </script>
+  </body>
+</html>
